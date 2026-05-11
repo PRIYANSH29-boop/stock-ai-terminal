@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 import pickle
 import base64
 import json
+import time
 import warnings
 from pathlib import Path
 from groq import Groq
@@ -85,6 +86,67 @@ def humanize_age(ts: datetime) -> str:
 RETRAIN_INFO = load_retrain_info()
 
 client = Groq(api_key="")
+
+
+# ============================================================
+# GROQ CALL — with retry and graceful fallback
+# ============================================================
+RATE_LIMIT_FALLBACK = (
+    "⚠️ AI analysis temporarily unavailable due to rate limiting. "
+    "All data, indicators, and predictions above are still live. "
+    "Try again in 60 seconds."
+)
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Detect rate-limit errors across groq-sdk versions without importing
+    internal classes (which differ between versions)."""
+    cls = type(exc).__name__.lower()
+    if "ratelimit" in cls:
+        return True
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if status == 429:
+        return True
+    msg = str(exc).lower()
+    return "429" in msg or "rate limit" in msg or "rate_limit" in msg
+
+
+def call_groq_with_retry(prompt: str) -> str:
+    """Call Groq with one retry on rate-limit errors.
+
+    Behaviour:
+      - First attempt fails with rate-limit  → wait 10s, retry once.
+      - Retry also fails with rate-limit     → return RATE_LIMIT_FALLBACK.
+      - Other errors                         → return a brief failure message
+                                                (the rest of the app keeps working).
+    """
+    attempts = [(0, "first attempt"), (10, "retry after 10s")]
+    last_error: Exception | None = None
+
+    for wait_secs, label in attempts:
+        if wait_secs:
+            time.sleep(wait_secs)
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2200,
+            )
+            content = response.choices[0].message.content
+            return content or RATE_LIMIT_FALLBACK
+        except Exception as e:
+            last_error = e
+            if not _is_rate_limit_error(e):
+                # Non-rate-limit failure: don't waste a retry on it.
+                return (
+                    f"⚠️ AI analysis temporarily unavailable: {type(e).__name__}. "
+                    "All data, indicators, and predictions above are still live."
+                )
+            # Otherwise we fall through to the next attempt (if any).
+
+    # Both attempts rate-limited.
+    return RATE_LIMIT_FALLBACK
 
 
 # ============================================================
@@ -579,12 +641,7 @@ RULES:
 - Use Markdown headers (###) exactly as shown above.
 - Keep total output under 1100 words, but be thorough."""
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=2200,
-    )
+    analysis_text = call_groq_with_retry(prompt)
 
     return {
         'ticker': ticker,
@@ -595,7 +652,7 @@ RULES:
         'day_change': day_change,
         'direction': direction,
         'confidence': confidence,
-        'analysis': response.choices[0].message.content,
+        'analysis': analysis_text,
         'news': news,
         'data': d,
         'latest': latest,
@@ -611,26 +668,48 @@ RULES:
 # PAGE CONFIG + CSS
 # ============================================================
 # SVG monogram logo for "PP" (Priyansh Patel) — used as favicon, sidebar and header brand
-PP_LOGO_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%">
-  <defs>
-    <linearGradient id="ppGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0ea5e9"/>
-      <stop offset="100%" stop-color="#0284c7"/>
-    </linearGradient>
-    <linearGradient id="ppGlow" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect x="2" y="2" width="60" height="60" rx="14" ry="14" fill="url(#ppGrad)"/>
-  <rect x="2" y="2" width="60" height="32" rx="14" ry="14" fill="url(#ppGlow)"/>
-  <text x="32" y="42" text-anchor="middle"
-        font-family="Inter, Helvetica, Arial, sans-serif"
-        font-size="28" font-weight="800" fill="#ffffff" letter-spacing="-1.5">PP</text>
-  <circle cx="52" cy="14" r="3" fill="#10b981"/>
-</svg>
-"""
+def pp_logo(size: int = 48, drop_shadow: bool = False) -> str:
+    """Return the PP monogram SVG at an explicit `size`x`size` pixel size,
+    rendered on ONE LINE so Streamlit's markdown parser treats it as inline HTML
+    rather than breaking out of the surrounding <div> block.
+
+    Why this matters: the previous version used a triple-quoted SVG with
+    width="100%" height="100%". The leading/trailing newlines made
+    markdown-it-py close the parent HTML container early, which caused two
+    visible bugs: (1) the SVG expanded to viewport size, (2) the trailing
+    </div> tags from the header markdown leaked through as plain text on
+    the welcome screen.
+    """
+    grad_id = f"ppGrad{size}"
+    glow_id = f"ppGlow{size}"
+    style = "display:inline-block;vertical-align:middle;"
+    if drop_shadow:
+        style += "filter:drop-shadow(0 4px 12px rgba(14,165,233,0.4));"
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" '
+        f'width="{size}" height="{size}" style="{style}">'
+        f'<defs>'
+        f'<linearGradient id="{grad_id}" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop offset="0%" stop-color="#0ea5e9"/>'
+        f'<stop offset="100%" stop-color="#0284c7"/>'
+        f'</linearGradient>'
+        f'<linearGradient id="{glow_id}" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35"/>'
+        f'<stop offset="100%" stop-color="#0ea5e9" stop-opacity="0"/>'
+        f'</linearGradient>'
+        f'</defs>'
+        f'<rect x="2" y="2" width="60" height="60" rx="14" ry="14" fill="url(#{grad_id})"/>'
+        f'<rect x="2" y="2" width="60" height="32" rx="14" ry="14" fill="url(#{glow_id})"/>'
+        f'<text x="32" y="42" text-anchor="middle" '
+        f'font-family="Inter, Helvetica, Arial, sans-serif" '
+        f'font-size="28" font-weight="800" fill="#ffffff" letter-spacing="-1.5">PP</text>'
+        f'<circle cx="52" cy="14" r="3" fill="#10b981"/>'
+        f'</svg>'
+    )
+
+
+# Backward-compat alias used by any remaining references.
+PP_LOGO_SVG = pp_logo(48)
 
 # NOTE: Streamlit's page_icon doesn't accept inline SVG or base64 data URIs reliably,
 # so we use an emoji for the browser tab and render the PP SVG inside the app instead.
@@ -870,15 +949,7 @@ def _set_query(name):
 
 with st.sidebar:
     st.markdown(
-        f"""
-        <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">
-          <div style="width:42px;height:42px;flex-shrink:0;">{PP_LOGO_SVG}</div>
-          <div>
-            <div style="font-family:'Inter',sans-serif;font-weight:700;font-size:1.1rem;color:#f1f5f9;line-height:1.1;">StockAI Terminal</div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#64748b;letter-spacing:1.5px;">BY PP · ML + LLM RESEARCH</div>
-          </div>
-        </div>
-        """,
+        f"""<div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">{pp_logo(42)}<div><div style="font-family:'Inter',sans-serif;font-weight:700;font-size:1.1rem;color:#f1f5f9;line-height:1.1;">StockAI Terminal</div><div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#64748b;letter-spacing:1.5px;">BY PP · ML + LLM RESEARCH</div></div></div>""",
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -980,31 +1051,30 @@ _source = RETRAIN_INFO.get("source", "unknown")
 _stale_days = ((datetime.now(timezone.utc) - _ts).days if _ts else 999)
 _stale_color = "#10b981" if _stale_days < 14 else ("#f59e0b" if _stale_days < 60 else "#ef4444")
 
-st.markdown(f"""
-<div class="terminal-header">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div style="display:flex; align-items:center; gap:16px;">
-            <div style="width:56px; height:56px; flex-shrink:0; filter: drop-shadow(0 4px 12px rgba(14,165,233,0.4));">
-                {PP_LOGO_SVG}
-            </div>
-            <div>
-                <p class="terminal-title">StockAI Terminal</p>
-                <p class="terminal-sub">AdaBoost ML · Llama 3.3 70B via Groq · 10y market history</p>
-                <p style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#475569; letter-spacing:2px; margin-top:6px;">
-                    A PROJECT BY <span style="color:#0ea5e9; font-weight:700;">PP</span> · PRIYANSH PATEL
-                </p>
-            </div>
-        </div>
-        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
-            <div class="terminal-live">LIVE</div>
-            <div style="font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:#64748b; text-align:right; line-height:1.4;">
-                <div style="color:{_stale_color};">● MODEL RETRAINED {_age_str.upper()}</div>
-                <div style="color:#475569;">{_date_str} · {_acc_str}</div>
-            </div>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    f'<div class="terminal-header">'
+    f'<div style="display: flex; justify-content: space-between; align-items: center;">'
+    f'<div style="display:flex; align-items:center; gap:16px;">'
+    f'{pp_logo(56, drop_shadow=True)}'
+    f'<div>'
+    f'<p class="terminal-title">StockAI Terminal</p>'
+    f'<p class="terminal-sub">AdaBoost ML · Llama 3.3 70B via Groq · 10y market history</p>'
+    f'<p style="font-family:\'JetBrains Mono\',monospace; font-size:0.6rem; color:#475569; letter-spacing:2px; margin-top:6px;">'
+    f'A PROJECT BY <span style="color:#0ea5e9; font-weight:700;">PP</span> · PRIYANSH PATEL'
+    f'</p>'
+    f'</div>'
+    f'</div>'
+    f'<div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">'
+    f'<div class="terminal-live">LIVE</div>'
+    f'<div style="font-family:\'JetBrains Mono\',monospace; font-size:0.65rem; color:#64748b; text-align:right; line-height:1.4;">'
+    f'<div style="color:{_stale_color};">● MODEL RETRAINED {_age_str.upper()}</div>'
+    f'<div style="color:#475569;">{_date_str} · {_acc_str}</div>'
+    f'</div>'
+    f'</div>'
+    f'</div>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
@@ -1782,13 +1852,16 @@ with tab_glossary:
 # ============================================================
 # DISCLAIMER
 # ============================================================
-st.markdown(f"""
-<div class="disclaimer">
-    ⚠️ FOR EDUCATIONAL & RESEARCH PURPOSES ONLY · NOT FINANCIAL ADVICE · MODEL ACCURACY ~53% ·
-    PAST PERFORMANCE ≠ FUTURE RESULTS · NEVER INVEST BASED SOLELY ON ALGORITHMIC OUTPUT<br>
-    <div style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">
-        <div style="width:18px; height:18px;">{PP_LOGO_SVG}</div>
-        <span>Built by <strong style="color:#94a3b8;">Priyansh Patel (PP)</strong> · AdaBoost ML + Llama 3.3 70B via Groq · Data via Yahoo Finance</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    f'<div class="disclaimer">'
+    f'⚠️ FOR EDUCATIONAL &amp; RESEARCH PURPOSES ONLY · NOT FINANCIAL ADVICE · '
+    f'MODEL ACCURACY ~53% · PAST PERFORMANCE ≠ FUTURE RESULTS · '
+    f'NEVER INVEST BASED SOLELY ON ALGORITHMIC OUTPUT<br>'
+    f'<span style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">'
+    f'{pp_logo(18)}'
+    f'<span>Built by <strong style="color:#94a3b8;">Priyansh Patel (PP)</strong> · '
+    f'AdaBoost ML + Llama 3.3 70B via Groq · Data via Yahoo Finance</span>'
+    f'</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
