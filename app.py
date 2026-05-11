@@ -950,8 +950,19 @@ div[data-testid="stExpander"] {
 }
 
 .stTabs [data-baseweb="tab-list"] {
-    gap: 6px; background: transparent; border-bottom: 1px solid #1e293b;
+    gap: 6px;
+    background: transparent;
+    border-bottom: 1px solid #1e293b;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #1e293b transparent;
+    flex-wrap: nowrap !important;
+    padding-bottom: 2px;
 }
+.stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { height: 4px; }
+.stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
 .stTabs [data-baseweb="tab"] {
     background: #111827 !important;
     color: #64748b !important;
@@ -961,11 +972,117 @@ div[data-testid="stExpander"] {
     font-family: 'JetBrains Mono', monospace !important;
     font-size: 0.78rem !important;
     letter-spacing: 0.5px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
 }
 .stTabs [aria-selected="true"] {
     background: #0d1117 !important;
     color: #0ea5e9 !important;
     border-color: #0ea5e9 !important;
+}
+
+/* =========================================================
+   RESPONSIVE — tablet, mobile, phone breakpoints
+   ========================================================= */
+@media (max-width: 1024px) {
+    .block-container { padding: 1rem !important; max-width: 100% !important; }
+    .terminal-header { padding: 16px 18px !important; }
+    .terminal-title { font-size: 1.4rem !important; }
+    .terminal-sub { font-size: 0.7rem !important; }
+}
+
+/* Mobile portrait + landscape */
+@media (max-width: 768px) {
+    .block-container { padding: 0.5rem !important; }
+
+    /* Header stacks: logo+title on top, status block below */
+    .terminal-header { padding: 14px 14px !important; }
+    .terminal-header > div { flex-direction: column !important; align-items: flex-start !important; gap: 10px !important; }
+    .terminal-title { font-size: 1.15rem !important; }
+    .terminal-sub { font-size: 0.65rem !important; }
+
+    /* Prediction card */
+    .pred-card { padding: 16px !important; }
+    .pred-direction { font-size: 1.35rem !important; }
+    .pred-confidence { font-size: 0.95rem !important; }
+
+    /* Cards */
+    .metric-card { padding: 10px 12px !important; }
+    .metric-value { font-size: 1.05rem !important; }
+    .metric-label { font-size: 0.6rem !important; }
+
+    /* Grids — force 2 cols on mobile so they don't go to one giant column */
+    .metric-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+    .gauge-grid  { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+    .gauge-value { font-size: 1.25rem !important; }
+    .gauge-card  { padding: 10px 12px !important; }
+
+    /* Tabs — scrollable strip on mobile */
+    .stTabs [data-baseweb="tab"] {
+        padding: 6px 10px !important;
+        font-size: 0.7rem !important;
+        letter-spacing: 0 !important;
+    }
+
+    /* Analysis card */
+    .analysis-card { padding: 16px !important; font-size: 0.85rem !important; line-height: 1.65 !important; }
+    .analysis-card h3 { font-size: 0.95rem !important; }
+
+    /* News cards */
+    .news-card { padding: 12px 14px !important; }
+    .news-title { font-size: 0.85rem !important; }
+    .news-summary { font-size: 0.72rem !important; }
+
+    /* Streamlit horizontal columns stack vertically on mobile */
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+
+    /* Importance bars compact */
+    .imp-name { min-width: 80px !important; font-size: 0.7rem !important; }
+    .imp-pct  { min-width: 38px !important; font-size: 0.65rem !important; }
+    .imp-val  { min-width: 50px !important; font-size: 0.65rem !important; }
+
+    /* Glossary cards */
+    .glossary-card { padding: 12px 14px !important; }
+    .glossary-term { font-size: 0.78rem !important; }
+    .glossary-def  { font-size: 0.78rem !important; }
+
+    /* Disclaimer */
+    .disclaimer { font-size: 0.55rem !important; padding: 12px !important; }
+
+    /* Radio row (chart range) wraps */
+    div[role="radiogroup"] { flex-wrap: wrap !important; gap: 4px !important; }
+}
+
+/* Small phone */
+@media (max-width: 480px) {
+    .block-container { padding: 0.25rem 0.5rem !important; }
+    .terminal-title { font-size: 1rem !important; }
+    .pred-direction { font-size: 1.15rem !important; }
+
+    /* Single-column grids on tiny screens — better readability */
+    .metric-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .gauge-grid  { grid-template-columns: 1fr !important; }
+
+    .stTabs [data-baseweb="tab"] {
+        padding: 5px 8px !important;
+        font-size: 0.65rem !important;
+    }
+
+    .news-card { padding: 10px 12px !important; }
+    .analysis-card { padding: 14px !important; font-size: 0.82rem !important; }
+
+    /* Sidebar buttons stack to single column */
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
