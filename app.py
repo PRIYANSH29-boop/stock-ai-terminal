@@ -922,6 +922,47 @@ st.markdown("""
     border-top: 1px solid #1e293b; margin-top: 30px;
 }
 
+/* Welcome hero — prominent main-area search before any analysis is run */
+.welcome-hero {
+    text-align: center;
+    padding: 40px 20px 12px;
+    font-family: 'Inter', sans-serif;
+}
+.welcome-hero-icon { font-size: 3rem; margin-bottom: 12px; line-height: 1; }
+.welcome-hero-title {
+    font-size: 1.8rem; color: #f1f5f9;
+    margin: 0 0 10px; font-weight: 700;
+    letter-spacing: -0.5px;
+}
+.welcome-hero-sub {
+    font-size: 0.95rem; color: #64748b;
+    max-width: 620px; margin: 0 auto 6px;
+    line-height: 1.6;
+}
+.welcome-popular-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem; color: #64748b;
+    text-transform: uppercase; letter-spacing: 2px;
+    text-align: center; margin: 28px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid #1e293b;
+}
+.welcome-hint {
+    text-align: center; font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem; color: #475569;
+    margin-top: 22px; line-height: 1.6;
+}
+
+/* Compact search at top of results — small "search another stock" row */
+.compact-search-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem; color: #64748b;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin: 8px 0 6px;
+}
+
+/* Anchors used by the popular-grid scoping rules in the mobile media query */
+.popular-grid-start, .popular-grid-end { display: none; }
+
 .stTextInput input {
     background: #111827 !important; border: 1px solid #1e293b !important;
     color: #f1f5f9 !important; font-family: 'JetBrains Mono', monospace !important;
@@ -1059,6 +1100,62 @@ div[data-testid="stExpander"] {
 
     /* Radio row (chart range) wraps */
     div[role="radiogroup"] { flex-wrap: wrap !important; gap: 4px !important; }
+
+    /* Hide sidebar PP logo block on mobile — redundant with main header */
+    [data-testid="stSidebar"] .sidebar-logo { display: none !important; }
+
+    /* Buttons get a 44px tap target on mobile (matches Apple HIG / Android guidelines) */
+    .stButton button { min-height: 44px !important; padding: 10px 12px !important; font-size: 0.82rem !important; }
+
+    /* Section header smaller */
+    .section-header { font-size: 0.62rem !important; padding: 12px 0 6px !important; letter-spacing: 1.2px !important; }
+
+    /* Welcome hero shrinks */
+    .welcome-hero { padding: 22px 8px 8px !important; }
+    .welcome-hero-icon { font-size: 2.2rem !important; }
+    .welcome-hero-title { font-size: 1.2rem !important; }
+    .welcome-hero-sub { font-size: 0.82rem !important; padding: 0 8px !important; }
+    .welcome-popular-header { margin: 18px 0 10px !important; font-size: 0.62rem !important; }
+    .welcome-hint { font-size: 0.6rem !important; margin-top: 16px !important; padding: 0 8px !important; }
+
+    /* Plotly charts capped at 450px on mobile (was 650 desktop).
+       Container hides any overflow so the chart's internal SVG re-fits on resize. */
+    div[data-testid="stPlotlyChart"] {
+        max-height: 460px !important;
+        overflow: hidden !important;
+    }
+    div[data-testid="stPlotlyChart"] > div,
+    div[data-testid="stPlotlyChart"] .js-plotly-plot,
+    div[data-testid="stPlotlyChart"] .plot-container,
+    div[data-testid="stPlotlyChart"] .user-select-none,
+    div[data-testid="stPlotlyChart"] .svg-container {
+        max-height: 450px !important;
+    }
+
+    /* Popular-grid scope: between .popular-grid-start and .popular-grid-end
+       anchors, columns stay as a 2-up flex-wrap row instead of stacking. */
+    [data-testid="element-container"]:has(.popular-grid-start) ~ [data-testid="element-container"] [data-testid="stHorizontalBlock"] {
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+    [data-testid="element-container"]:has(.popular-grid-start) ~ [data-testid="element-container"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="element-container"]:has(.popular-grid-start) ~ [data-testid="element-container"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 0 0 calc(50% - 4px) !important;
+        width: calc(50% - 4px) !important;
+        max-width: calc(50% - 4px) !important;
+    }
+    /* End marker resets following siblings back to default (column stack). */
+    [data-testid="element-container"]:has(.popular-grid-end) ~ [data-testid="element-container"] [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+        flex-wrap: nowrap !important;
+    }
+    [data-testid="element-container"]:has(.popular-grid-end) ~ [data-testid="element-container"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="element-container"]:has(.popular-grid-end) ~ [data-testid="element-container"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
 }
 
 /* Small phone */
@@ -1083,6 +1180,21 @@ div[data-testid="stExpander"] {
     [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
         flex-direction: column !important;
     }
+
+    /* Even smaller hero on tiny phones */
+    .welcome-hero-title { font-size: 1.05rem !important; }
+    .welcome-hero-sub { font-size: 0.75rem !important; }
+    .welcome-hero-icon { font-size: 1.9rem !important; }
+
+    /* Tighter chart cap on the smallest screens */
+    div[data-testid="stPlotlyChart"] { max-height: 420px !important; }
+    div[data-testid="stPlotlyChart"] > div,
+    div[data-testid="stPlotlyChart"] .js-plotly-plot,
+    div[data-testid="stPlotlyChart"] .plot-container,
+    div[data-testid="stPlotlyChart"] .svg-container { max-height: 410px !important; }
+
+    /* Disclaimer shrinks further */
+    .disclaimer { font-size: 0.5rem !important; padding: 8px !important; line-height: 1.4 !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1102,9 +1214,34 @@ def _set_query(name):
     st.session_state.trigger_analysis = True
 
 
+def _welcome_search():
+    """Callback for the welcome-screen search row in the main content area.
+    If the user typed something, push it into the sidebar's search_query slot
+    so the rest of the flow (analyse_btn / trigger_analysis) stays unchanged.
+    Empty submit falls back to whatever is already in search_query."""
+    val = (st.session_state.get("welcome_input") or "").strip()
+    if val:
+        st.session_state.search_query = val
+    st.session_state.trigger_analysis = True
+
+
+def _compact_search():
+    """Same as _welcome_search but driven by the compact top-of-results bar.
+    Lets mobile users switch tickers without opening the sidebar.
+
+    Clearing compact_input here (inside the on_change callback, before the
+    next rerun re-instantiates the widget) keeps the field empty for the
+    follow-up search instead of leaving stale text behind."""
+    val = (st.session_state.get("compact_input") or "").strip()
+    if val:
+        st.session_state.search_query = val
+        st.session_state.compact_input = ""
+    st.session_state.trigger_analysis = True
+
+
 with st.sidebar:
     st.markdown(
-        f"""<div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">{pp_logo(42)}<div><div style="font-family:'Inter',sans-serif;font-weight:700;font-size:1.1rem;color:#f1f5f9;line-height:1.1;">StockAI Terminal</div><div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#64748b;letter-spacing:1.5px;">BY PP · ML + LLM RESEARCH</div></div></div>""",
+        f"""<div class="sidebar-logo" style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">{pp_logo(42)}<div><div style="font-family:'Inter',sans-serif;font-weight:700;font-size:1.1rem;color:#f1f5f9;line-height:1.1;">StockAI Terminal</div><div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#64748b;letter-spacing:1.5px;">BY PP · ML + LLM RESEARCH</div></div></div>""",
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -1276,22 +1413,82 @@ if new_request:
 elif cached_result is not None:
     result = cached_result
 else:
-    # No prior analysis — show welcome screen.
+    # No prior analysis — show welcome screen with main-area search + popular grid
+    # so mobile users can start an analysis without opening the sidebar.
     st.markdown(
         """
-        <div style="text-align:center; padding: 50px 20px; color:#64748b; font-family:'Inter',sans-serif;">
-            <div style="font-size: 3rem; margin-bottom: 10px;">📊</div>
-            <div style="font-size: 1.4rem; color: #f1f5f9; margin-bottom: 10px;">
-                Type a company name in the sidebar — or click a popular one
-            </div>
-            <div style="font-size: 0.9rem; max-width: 620px; margin: 0 auto; line-height: 1.6;">
-                Try "Apple", "Reddit", "Nvidia", or any ticker like "TSLA".
-                You'll get a full equity briefing: ML-driven 30-day prediction,
-                technical indicators, 10-year performance, risk metrics, fundamentals health check,
-                bull/bear cases, and recent news — explained in plain English.
+        <div class="welcome-hero">
+            <div class="welcome-hero-icon">📊</div>
+            <div class="welcome-hero-title">Analyse any stock in seconds</div>
+            <div class="welcome-hero-sub">
+                Type a company name or ticker — get an ML-driven 30-day prediction,
+                technical indicators, 10-year performance, risk metrics, fundamentals,
+                bull/bear cases, and recent news, all explained in plain English.
             </div>
         </div>
         """,
+        unsafe_allow_html=True,
+    )
+
+    # Prominent search input + analyse button.
+    # On desktop these sit side-by-side; mobile stacks them via the existing
+    # stHorizontalBlock flex-direction:column rule.
+    hero_in, hero_btn = st.columns([5, 1])
+    with hero_in:
+        st.text_input(
+            "Welcome search",
+            key="welcome_input",
+            placeholder="Type a company name or ticker — e.g. Apple, Tesla, NVDA",
+            label_visibility="collapsed",
+            on_change=_welcome_search,
+        )
+    with hero_btn:
+        st.button(
+            "⚡ ANALYSE",
+            key="welcome_analyse_btn",
+            on_click=_welcome_search,
+            width="stretch",
+        )
+
+    st.markdown(
+        '<div class="welcome-popular-header">⭐ Popular companies — tap to analyse</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Anchor for the CSS scope: between these two markers the mobile rules
+    # turn st.columns into a 2-up wrapping grid instead of a vertical stack.
+    st.markdown('<div class="popular-grid-start"></div>', unsafe_allow_html=True)
+
+    welcome_picks = [
+        "Apple", "Tesla", "Nvidia", "Reddit", "Google",
+        "Amazon", "Microsoft", "Netflix", "JPMorgan", "Boeing",
+    ]
+    row_a = st.columns(5)
+    for i, name in enumerate(welcome_picks[:5]):
+        with row_a[i]:
+            st.button(
+                name,
+                key=f"welcome_pop_{name}",
+                on_click=_set_query,
+                args=(name,),
+                width="stretch",
+            )
+    row_b = st.columns(5)
+    for i, name in enumerate(welcome_picks[5:]):
+        with row_b[i]:
+            st.button(
+                name,
+                key=f"welcome_pop_{name}",
+                on_click=_set_query,
+                args=(name,),
+                width="stretch",
+            )
+
+    st.markdown('<div class="popular-grid-end"></div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="welcome-hint">Or open the sidebar (top-left ☰) for the full company list, '
+        'history window, and beginner-mode toggle.</div>',
         unsafe_allow_html=True,
     )
     st.stop()
@@ -1307,6 +1504,28 @@ risk = result['risk']
 change_color = "metric-change-up" if result['day_change'] >= 0 else "metric-change-down"
 change_sign = "+" if result['day_change'] >= 0 else ""
 
+
+# ============================================================
+# COMPACT TOP-OF-PAGE SEARCH (so mobile can switch tickers
+# without opening the sidebar)
+# ============================================================
+st.markdown('<div class="compact-search-label">🔍 Search another stock</div>', unsafe_allow_html=True)
+cs_in, cs_btn = st.columns([5, 1])
+with cs_in:
+    st.text_input(
+        "Compact search",
+        key="compact_input",
+        placeholder=f"Currently analysing {ticker} — type a different name or ticker to switch",
+        label_visibility="collapsed",
+        on_change=_compact_search,
+    )
+with cs_btn:
+    st.button(
+        "⚡ GO",
+        key="compact_go_btn",
+        on_click=_compact_search,
+        width="stretch",
+    )
 
 # ============================================================
 # TOP: PREDICTION + KEY METRICS
@@ -1587,7 +1806,7 @@ with tab_charts:
     )
     fig.update_xaxes(gridcolor='#1e293b', zeroline=False)
     fig.update_yaxes(gridcolor='#1e293b', zeroline=False)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", config={"responsive": True, "displayModeBar": False})
 
     if beginner_mode:
         st.markdown(
@@ -1655,7 +1874,7 @@ with tab_perf:
     )
     fig2.update_xaxes(gridcolor='#1e293b', zeroline=False)
     fig2.update_yaxes(gridcolor='#1e293b', zeroline=False, tickprefix='$', tickformat=',.0f')
-    st.plotly_chart(fig2, width="stretch")
+    st.plotly_chart(fig2, width="stretch", config={"responsive": True, "displayModeBar": False})
 
     final_value = growth.iloc[-1]
     multiplier = final_value / 10000
@@ -1747,7 +1966,7 @@ with tab_risk:
     )
     fig3.update_xaxes(gridcolor='#1e293b', zeroline=False)
     fig3.update_yaxes(gridcolor='#1e293b', zeroline=False, ticksuffix='%')
-    st.plotly_chart(fig3, width="stretch")
+    st.plotly_chart(fig3, width="stretch", config={"responsive": True, "displayModeBar": False})
 
     st.markdown('<div class="section-header">📊 Daily return distribution</div>', unsafe_allow_html=True)
     fig4 = go.Figure()
@@ -1767,7 +1986,7 @@ with tab_risk:
     )
     fig4.update_xaxes(gridcolor='#1e293b', zeroline=False, ticksuffix='%')
     fig4.update_yaxes(gridcolor='#1e293b', zeroline=False)
-    st.plotly_chart(fig4, width="stretch")
+    st.plotly_chart(fig4, width="stretch", config={"responsive": True, "displayModeBar": False})
 
 
 # ------------------------------------------------------------
