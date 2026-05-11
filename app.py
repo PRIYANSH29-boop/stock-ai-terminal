@@ -6,12 +6,22 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pickle
 import base64
+import html
 import json
+import os
 import time
 import warnings
 from pathlib import Path
 from groq import Groq
 from datetime import datetime, timezone
+
+
+def _esc(value) -> str:
+    """HTML-escape a value before injecting it into an unsafe_allow_html block.
+    Tolerates None / non-strings."""
+    if value is None:
+        return ""
+    return html.escape(str(value), quote=False)
 
 warnings.filterwarnings("ignore", message="X does not have valid feature names")
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -85,7 +95,26 @@ def humanize_age(ts: datetime) -> str:
 
 RETRAIN_INFO = load_retrain_info()
 
-client = Groq(api_key="")
+
+def _resolve_groq_key() -> str:
+    """Look for the Groq API key in (1) env var, (2) Streamlit secrets, (3) empty.
+
+    Returns "" if not set — Groq() still constructs and the retry helper turns
+    auth errors into a friendly fallback string instead of crashing.
+    """
+    key = os.environ.get("GROQ_API_KEY", "")
+    if key:
+        return key
+    try:
+        if "GROQ_API_KEY" in st.secrets:
+            return st.secrets["GROQ_API_KEY"]
+    except Exception:
+        pass
+    return ""
+
+
+GROQ_API_KEY = _resolve_groq_key()
+client = Groq(api_key=GROQ_API_KEY or "missing")
 
 
 # ============================================================
@@ -115,11 +144,20 @@ def call_groq_with_retry(prompt: str) -> str:
     """Call Groq with one retry on rate-limit errors.
 
     Behaviour:
+      - No API key set                       → return a clear "set GROQ_API_KEY" notice.
       - First attempt fails with rate-limit  → wait 10s, retry once.
       - Retry also fails with rate-limit     → return RATE_LIMIT_FALLBACK.
       - Other errors                         → return a brief failure message
                                                 (the rest of the app keeps working).
     """
+    if not GROQ_API_KEY:
+        return (
+            "⚠️ AI analysis disabled — `GROQ_API_KEY` is not set. "
+            "All data, indicators, and predictions above are still live. "
+            "Set the key as an environment variable or in `.streamlit/secrets.toml` "
+            "to enable the LLM analysis."
+        )
+
     attempts = [(0, "first attempt"), (10, "retry after 10s")]
     last_error: Exception | None = None
 
@@ -1204,14 +1242,14 @@ with metrics_col:
         </div>
         <div class="metric-card">
             <div class="metric-label">Sector</div>
-            <div class="metric-value" style="font-size:0.95rem;">{result['sector']}</div>
+            <div class="metric-value" style="font-size:0.95rem;">{_esc(result['sector'])}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
     st.markdown(
         f"<div style='font-family:Inter; font-size:0.85rem; color:#94a3b8;'>"
-        f"<strong style='color:#f1f5f9;'>{result['company']}</strong> · "
-        f"{result['industry']}</div>",
+        f"<strong style='color:#f1f5f9;'>{_esc(result['company'])}</strong> · "
+        f"{_esc(result['industry'])}</div>",
         unsafe_allow_html=True,
     )
 
@@ -1247,17 +1285,16 @@ with tab_ai:
             unsafe_allow_html=True,
         )
 
-    analysis_html = result['analysis']
-    analysis_html = analysis_html.replace("### ", "<h3>").replace("\n\n", "</p><p>")
-    # Close any open <h3> at end of line
+    # Render the LLM markdown report into our custom analysis-card HTML.
     fixed_lines = []
     for line in result['analysis'].split("\n"):
-        if line.startswith("### "):
-            fixed_lines.append(f"<h3>{line[4:].strip()}</h3>")
-        elif line.strip().startswith("- "):
-            fixed_lines.append(f"<div style='margin-left:18px;'>• {line.strip()[2:]}</div>")
-        elif line.strip():
-            fixed_lines.append(f"<p style='margin:6px 0;'>{line.strip()}</p>")
+        stripped = line.strip()
+        if stripped.startswith("### "):
+            fixed_lines.append(f"<h3>{stripped[4:]}</h3>")
+        elif stripped.startswith("- "):
+            fixed_lines.append(f"<div style='margin-left:18px;'>• {stripped[2:]}</div>")
+        elif stripped:
+            fixed_lines.append(f"<p style='margin:6px 0;'>{stripped}</p>")
     analysis_html = "\n".join(fixed_lines)
 
     st.markdown(f"""
@@ -1751,7 +1788,7 @@ with tab_fund:
         </div>
         <div class="metric-card">
             <div class="metric-label">Consensus</div>
-            <div class="metric-value" style="font-size:1.1rem; text-transform:uppercase;">{rec_key}</div>
+            <div class="metric-value" style="font-size:1.1rem; text-transform:uppercase;">{_esc(rec_key)}</div>
         </div>
         <div class="metric-card">
             <div class="metric-label"># Analysts</div>
@@ -1764,7 +1801,7 @@ with tab_fund:
         with st.expander("🏢 Business description"):
             st.markdown(
                 f"<div style='font-family:Inter; font-size:0.9rem; color:#cbd5e1; line-height:1.7;'>"
-                f"{info['longBusinessSummary']}</div>",
+                f"{_esc(info['longBusinessSummary'])}</div>",
                 unsafe_allow_html=True,
             )
 
@@ -1781,7 +1818,12 @@ with tab_news:
         title = n.get('title') or '(untitled)'
         publisher = n.get('publisher') or 'Unknown'
         link = n.get('link') or ''
-        link_html = f'<a href="{link}" target="_blank" style="color:#0ea5e9;font-size:0.75rem;text-decoration:none;">Read full article →</a>' if link else ''
+        link_safe = html.escape(link, quote=True)
+        link_html = (
+            f'<a href="{link_safe}" target="_blank" rel="noopener noreferrer" '
+            f'style="color:#0ea5e9;font-size:0.75rem;text-decoration:none;">Read full article →</a>'
+            if link else ''
+        )
         date_text = ""
         raw_date = n.get('date') or ''
         if raw_date:
@@ -1790,14 +1832,15 @@ with tab_news:
             except Exception:
                 date_text = raw_date[:10]
 
+        trimmed = summary[:280] + ('...' if len(summary) > 280 else '')
         st.markdown(f"""
         <div class="news-card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div class="news-publisher">{publisher}</div>
-                <div style="font-size:0.7rem; color:#475569; font-family:'JetBrains Mono',monospace;">{date_text}</div>
+                <div class="news-publisher">{_esc(publisher)}</div>
+                <div style="font-size:0.7rem; color:#475569; font-family:'JetBrains Mono',monospace;">{_esc(date_text)}</div>
             </div>
-            <div class="news-title">{title}</div>
-            <div class="news-summary">{summary[:280]}{'...' if len(summary) > 280 else ''}</div>
+            <div class="news-title">{_esc(title)}</div>
+            <div class="news-summary">{_esc(trimmed)}</div>
             <div style="margin-top:8px;">{link_html}</div>
         </div>
         """, unsafe_allow_html=True)
