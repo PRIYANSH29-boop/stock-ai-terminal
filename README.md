@@ -13,6 +13,26 @@ A good one — end-to-end and self-maintaining — but a prototype.
 
 **Live:** https://stock-ai-terminal.streamlit.app/
 
+> ### Where this sits: earlier exploration, since superseded
+>
+> StockAI Terminal asks *"will this stock go up?"* — direction prediction on one
+> stock from its own features. I took that same question into
+> **[RankAlpha](https://github.com/PRIYANSH29-boop/financeai)** and audited it
+> properly. After purging look-ahead leakage and charging realistic costs,
+> single-stock direction landed at roughly a **coin flip**: it is dominated by
+> market-wide moves nobody can predict. The leakage fix documented below was the
+> first sighting of that result; RankAlpha is where it was measured to the end.
+>
+> So the question changed — from *"will this stock go up?"* to *"will it
+> outperform the other 499?"*. That is a cross-sectional **ranking** problem,
+> where the market's move cancels between the legs and what is left is actually
+> about the individual stock. It is the approach that survived, and it is where
+> the work continued.
+>
+> This repo stays up as the earlier rung, not as a current recommendation. The
+> part that carried forward is the **grounded-LLM layer** — an explainer fed
+> structured model output so it cites numbers rather than inventing them.
+
 ---
 
 ## What it does
