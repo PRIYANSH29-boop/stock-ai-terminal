@@ -77,6 +77,7 @@ def humanize_age(ts: datetime) -> str:
         return "just now"
     minutes = seconds // 60
     if minutes < 60:
+        
         return f"{minutes} min ago"
     hours = minutes // 60
     if hours < 24:
@@ -94,6 +95,11 @@ def humanize_age(ts: datetime) -> str:
 
 
 RETRAIN_INFO = load_retrain_info()
+# One source of truth for the accuracy shown anywhere in the UI — the latest
+# retrain's measured number, never a hardcoded literal (falls back to ~55%,
+# the documented post-leakage-fix figure, if the log is unavailable).
+_acc_live = RETRAIN_INFO.get("accuracy")
+ACC_NOTE = f"~{_acc_live*100:.0f}%" if _acc_live is not None else "~55%"
 
 
 def _resolve_groq_key() -> str:
@@ -595,7 +601,7 @@ ML MODEL OUTPUT  (AdaBoost, 30-day horizon)
 ═══════════════════════════════════════════════
 PREDICTION:    {direction}
 CONFIDENCE:    {confidence:.1f}%
-NOTE: backtest accuracy ~53%. Treat as ONE input among many.
+NOTE: backtest accuracy {ACC_NOTE} (barely above the always-UP baseline). Treat as ONE input among many.
 
 INDICATOR IMPORTANCE & VALUES:
 {importance_text}
@@ -1540,16 +1546,16 @@ with pred_col:
     <div class="pred-card {pred_class}">
         <p class="pred-direction" style="color: {pred_color};">{arrow} MODEL PREDICTS {result['direction']}</p>
         <p class="pred-confidence" style="color: {pred_color};">{result['confidence']:.1f}% confidence</p>
-        <p class="pred-note">30-day prediction · AdaBoost · ~53% backtest accuracy</p>
+        <p class="pred-note">30-day prediction · AdaBoost · {ACC_NOTE} backtest accuracy</p>
     </div>
     """, unsafe_allow_html=True)
     if beginner_mode:
         st.markdown(
-            """
+            f"""
             <div class="beginner-tip">
               <strong>What this means:</strong> The model thinks the stock is more likely to move in this
               direction over the next 30 days. Confidence near 50% means the model is unsure.
-              Backtest accuracy is only ~53%, so treat this as ONE signal among many — not a recommendation.
+              Backtest accuracy is only {ACC_NOTE}, so treat this as ONE signal among many — not a recommendation.
             </div>
             """,
             unsafe_allow_html=True,
@@ -2217,7 +2223,7 @@ with tab_glossary:
         ("💰 Profit Margin", "% of revenue that becomes profit. Software companies often >20%. Grocery stores often 1–3%. Sector context matters."),
         ("🌊 Volume Ratio", "Today's trading volume vs the 20-day average. Above 1.5× often signals important news or big moves."),
         ("🎢 ATR (Average True Range)", "Typical daily price range in dollars. Useful for setting stop-loss distances or sizing positions."),
-        ("🔮 30-day Prediction", "The ML model's guess at whether the stock will end higher or lower 30 trading days from now. Backtest accuracy ~53%."),
+        ("🔮 30-day Prediction", f"The ML model's guess at whether the stock will end higher or lower 30 trading days from now. Backtest accuracy {ACC_NOTE} — barely above the always-UP baseline."),
     ]
     for term, definition in glossary:
         st.markdown(f"""
@@ -2234,12 +2240,15 @@ with tab_glossary:
 st.markdown(
     f'<div class="disclaimer">'
     f'⚠️ FOR EDUCATIONAL &amp; RESEARCH PURPOSES ONLY · NOT FINANCIAL ADVICE · '
-    f'MODEL ACCURACY ~53% · PAST PERFORMANCE ≠ FUTURE RESULTS · '
+    f'MODEL ACCURACY {ACC_NOTE} · PAST PERFORMANCE ≠ FUTURE RESULTS · '
     f'NEVER INVEST BASED SOLELY ON ALGORITHMIC OUTPUT<br>'
     f'<span style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">'
     f'{pp_logo(18)}'
     f'<span>Built by <strong style="color:#94a3b8;">Priyansh Patel (PP)</strong> · '
-    f'AdaBoost ML + Llama 3.3 70B via Groq · Data via Yahoo Finance</span>'
+    f'AdaBoost ML + Llama 3.3 70B via Groq · Data via Yahoo Finance · '
+    f'<a href="https://portfolio-dun-two-93.vercel.app" style="color:#94a3b8;">portfolio</a> · '
+    f'also by me: <a href="https://rankalpha.pages.dev" style="color:#94a3b8;">RankAlpha</a> &amp; '
+    f'<a href="https://fraudlens.pages.dev" style="color:#94a3b8;">FraudLens</a></span>'
     f'</span>'
     f'</div>',
     unsafe_allow_html=True,

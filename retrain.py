@@ -26,7 +26,13 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 from sklearn.ensemble import AdaBoostClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
 from sklearn.tree import DecisionTreeClassifier
 
 warnings.filterwarnings("ignore")
@@ -44,11 +50,17 @@ STOCKS = {
     "Defence":     ["LMT", "RTX", "NOC", "GD", "BA"],
 }
 
+# NOTE: PE_Ratio, Revenue_Growth, Profit_Margin were dropped to remove lookahead.
+# yfinance .info returns CURRENT snapshot values that were being stamped onto all
+# 10 years of history — the model could "see the future." yfinance does expose
+# .quarterly_financials, but coverage is shallow (~5 quarters in the free tier),
+# the values get restated, and proper publication-lag alignment isn't reliably
+# doable without a paid point-in-time data source. Falling back to (a): drop them.
 FEATURE_COLS = [
     "RSI", "MACD", "MACD_Hist", "BB_Position",
     "Volume_Ratio", "Volatility", "Daily_Return",
-    "PE_Ratio", "Revenue_Growth", "Profit_Margin",
 ]
+DROPPED_FUNDAMENTAL_COLS = ["PE_Ratio", "Revenue_Growth", "Profit_Margin"]
 
 MIN_ROWS_PER_STOCK = 200       # minimum trading days required to include a stock
 PREDICTION_HORIZON_DAYS = 30   # target = "did price go up 30 trading days later?"
@@ -165,24 +177,53 @@ def build_master_dataframe() -> tuple[pd.DataFrame, dict[str, int]]:
 # ============================================================
 # TRAIN
 # ============================================================
+def split_train_test_with_embargo(
+    df: pd.DataFrame,
+    train_frac: float = TRAIN_TEST_SPLIT,
+    embargo: int = PREDICTION_HORIZON_DAYS,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Per-ticker chronological 80/20 split with an embargo at the boundary.
+
+    The target is Close.shift(-embargo)/Close - 1 > 0, so a training row at
+    index i depends on prices at i+embargo. Without an embargo the last
+    `embargo` training rows have forward windows that overlap test-period
+    prices — classic label leakage. Per-ticker so the embargo doesn't bleed
+    across the seams of pd.concat'd frames.
+    """
+    train_parts: list[pd.DataFrame] = []
+    test_parts: list[pd.DataFrame] = []
+    for ticker, sub in df.groupby("Ticker", sort=False):
+        sub = sub.sort_index()  # chronological within ticker
+        n = len(sub)
+        split = int(n * train_frac)
+        train_cut = max(0, split - embargo)
+        train_parts.append(sub.iloc[:train_cut])
+        test_parts.append(sub.iloc[split:])
+    train = pd.concat(train_parts) if train_parts else df.iloc[:0]
+    test = pd.concat(test_parts) if test_parts else df.iloc[:0]
+    return train, test
+
+
 def train_model(master_df: pd.DataFrame):
-    """Time-based 80/20 split → AdaBoost → return (model, metrics_dict)."""
+    """Per-ticker time-based split with embargo → AdaBoost → honest metrics."""
     df = master_df.dropna(subset=FEATURE_COLS + ["Target"]).copy()
 
-    X = df[FEATURE_COLS]
-    y = df["Target"]
+    train_df, test_df = split_train_test_with_embargo(df)
 
-    split_idx = int(len(X) * TRAIN_TEST_SPLIT)
-    X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
-    y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+    X_train, y_train = train_df[FEATURE_COLS], train_df["Target"].astype(int)
+    X_test, y_test = test_df[FEATURE_COLS], test_df["Target"].astype(int)
+
+    baseline_up_train = float(y_train.mean()) if len(y_train) else float("nan")
+    baseline_up_test = float(y_test.mean()) if len(y_test) else float("nan")
 
     print("\n" + "=" * 60)
-    print("TRAINING")
+    print(f"TRAINING (per-ticker time-based split, embargo={PREDICTION_HORIZON_DAYS} rows)")
     print("=" * 60)
-    print(f"Total usable rows: {len(X):,}")
-    print(f"Training set:      {len(X_train):,} rows")
+    print(f"Total usable rows: {len(df):,}")
+    print(f"Training set:      {len(X_train):,} rows (after embargo)")
     print(f"Test set:          {len(X_test):,} rows")
-    print(f"Target balance:    UP {y.mean()*100:.1f}%  |  DOWN {(1-y.mean())*100:.1f}%")
+    print(f"Train target UP:   {baseline_up_train*100:.2f}%")
+    print(f"Test  target UP:   {baseline_up_test*100:.2f}%  ← always-UP baseline")
 
     ada = AdaBoostClassifier(
         estimator=DecisionTreeClassifier(max_depth=3),
@@ -193,16 +234,46 @@ def train_model(master_df: pd.DataFrame):
     ada.fit(X_train, y_train)
 
     y_pred = ada.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
+    y_proba = ada.predict_proba(X_test)[:, 1]  # P(class=UP)
+
+    accuracy = float(accuracy_score(y_test, y_pred))
+    baseline_always_up_acc = baseline_up_test  # accuracy of "always predict UP"
+
+    prec, rec, f1, _ = precision_recall_fscore_support(
+        y_test, y_pred, labels=[0], average=None, zero_division=0
+    )
+    down_precision = float(prec[0])
+    down_recall = float(rec[0])
+    down_f1 = float(f1[0])
+
+    try:
+        roc_auc = float(roc_auc_score(y_test, y_proba))
+    except ValueError:
+        roc_auc = float("nan")
+
+    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+    tn, fp = int(cm[0, 0]), int(cm[0, 1])
+    fn, tp = int(cm[1, 0]), int(cm[1, 1])
 
     print("\n" + "=" * 60)
-    print("EVALUATION")
+    print("EVALUATION (honest, after leakage fixes)")
     print("=" * 60)
-    print(f"Test accuracy: {accuracy*100:.2f}%")
-    print("\nClassification report:")
-    print(classification_report(y_test, y_pred, target_names=["DOWN", "UP"]))
+    print(f"Test accuracy:         {accuracy*100:6.2f}%")
+    print(f"Always-UP baseline:    {baseline_always_up_acc*100:6.2f}%")
+    print(f"Lift over baseline:    {(accuracy - baseline_always_up_acc)*100:+6.2f} pp")
+    print(f"ROC-AUC:               {roc_auc:.4f}")
+    print(f"DOWN-class precision:  {down_precision:.4f}")
+    print(f"DOWN-class recall:     {down_recall:.4f}")
+    print(f"DOWN-class F1:         {down_f1:.4f}")
+    print()
+    print("Confusion matrix (rows=actual, cols=predicted):")
+    print(f"                  pred DOWN   pred UP")
+    print(f"  actual DOWN     {tn:9d}   {fp:7d}")
+    print(f"  actual UP       {fn:9d}   {tp:7d}")
+    print()
+    print("Full classification report:")
+    print(classification_report(y_test, y_pred, target_names=["DOWN", "UP"], zero_division=0))
 
-    # Feature importance ranking
     importance_pairs = sorted(
         zip(FEATURE_COLS, ada.feature_importances_),
         key=lambda x: x[1],
@@ -213,24 +284,40 @@ def train_model(master_df: pd.DataFrame):
         bar = "█" * int(imp * 100)
         print(f"  {feat:20s} {imp*100:5.1f}%  {bar}")
 
-    # Accuracy by sector
-    test_slice = df.iloc[split_idx:].copy()
+    test_slice = test_df.copy()
     test_slice["Predicted"] = y_pred
-    print("\nAccuracy by sector:")
-    sector_accuracy = {}
+    print("\nAccuracy by sector (model vs always-UP):")
+    sector_accuracy: dict[str, float] = {}
     for sector in test_slice["Sector"].unique():
         sub = test_slice[test_slice["Sector"] == sector]
-        sect_acc = accuracy_score(sub["Target"], sub["Predicted"])
+        sect_acc = float(accuracy_score(sub["Target"], sub["Predicted"]))
+        sect_base = float(sub["Target"].mean())
         sector_accuracy[sector] = sect_acc
-        print(f"  {sector:15s} {sect_acc*100:5.1f}%  ({len(sub):,} rows)")
+        print(
+            f"  {sector:15s} model {sect_acc*100:5.1f}%   "
+            f"always-UP {sect_base*100:5.1f}%   ({len(sub):,} rows)"
+        )
 
     metrics = {
-        "accuracy": float(accuracy),
+        "accuracy": accuracy,
+        "baseline_always_up_acc": float(baseline_always_up_acc),
+        "lift_over_baseline_pp": float((accuracy - baseline_always_up_acc) * 100),
+        "roc_auc": roc_auc,
+        "down_precision": down_precision,
+        "down_recall": down_recall,
+        "down_f1": down_f1,
+        "confusion_matrix": {"tn": tn, "fp": fp, "fn": fn, "tp": tp},
         "train_rows": int(len(X_train)),
         "test_rows": int(len(X_test)),
-        "target_up_pct": float(y.mean() * 100),
+        "train_up_pct": float(baseline_up_train * 100),
+        "test_up_pct": float(baseline_up_test * 100),
+        # Kept for back-compat with previous log entries / app.py:
+        "target_up_pct": float(baseline_up_test * 100),
         "importance": {feat: float(imp) for feat, imp in importance_pairs},
         "sector_accuracy": {k: float(v) for k, v in sector_accuracy.items()},
+        "split_method": "per_ticker_time_based_with_embargo",
+        "embargo_rows": int(PREDICTION_HORIZON_DAYS),
+        "fundamentals_dropped": DROPPED_FUNDAMENTAL_COLS,
     }
     return ada, metrics
 
@@ -260,11 +347,23 @@ def append_log(metrics: dict, row_counts: dict[str, int]) -> dict:
         "rows_per_ticker": row_counts,
         "total_rows": int(sum(row_counts.values())),
         "accuracy": metrics["accuracy"],
+        "baseline_always_up_acc": metrics["baseline_always_up_acc"],
+        "lift_over_baseline_pp": metrics["lift_over_baseline_pp"],
+        "roc_auc": metrics["roc_auc"],
+        "down_precision": metrics["down_precision"],
+        "down_recall": metrics["down_recall"],
+        "down_f1": metrics["down_f1"],
+        "confusion_matrix": metrics["confusion_matrix"],
         "train_rows": metrics["train_rows"],
         "test_rows": metrics["test_rows"],
-        "target_up_pct": metrics["target_up_pct"],
+        "train_up_pct": metrics["train_up_pct"],
+        "test_up_pct": metrics["test_up_pct"],
+        "target_up_pct": metrics["target_up_pct"],  # kept for back-compat
         "importance": metrics["importance"],
         "sector_accuracy": metrics["sector_accuracy"],
+        "split_method": metrics["split_method"],
+        "embargo_rows": metrics["embargo_rows"],
+        "fundamentals_dropped": metrics["fundamentals_dropped"],
     }
 
     history = []

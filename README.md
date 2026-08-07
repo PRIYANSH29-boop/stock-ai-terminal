@@ -1,250 +1,195 @@
-# ⚡ StockAI Terminal
+# StockAI Terminal
 
-A production-grade stock analysis system that combines **AdaBoost machine learning**, **Llama 3.3 70B** reasoning via Groq, and **10 years of live market data** to produce explainable equity research — deployed as a Streamlit web app with automatic weekly retraining.
+An end-to-end **ML + LLM prototype** for stock analysis: it pulls market data,
+trains a directional signal model, validates it honestly, and uses an LLM to
+explain the model's output in plain English — then redeploys and retrains itself
+weekly. The breadth is the point. **It is a well-built prototype, not a production
+system**, and its value is the explainability and the grounded-LLM layer, not the
+prediction accuracy (which is, honestly, about a coin flip — see below).
 
-> **Not a toy demo.** This follows the architecture of production AI systems used in fintech — ML model predicts, LLM explains, everything cites its sources.
+To be precise about that word: a pickled model committed to git, retrained by
+commit, on yfinance's free API, served on Streamlit's free tier is a prototype.
+A good one — end-to-end and self-maintaining — but a prototype.
 
-[![Live App](https://img.shields.io/badge/Live_App-StockAI_Terminal-0ea5e9?style=for-the-badge&logo=streamlit&logoColor=white)](https://stock-ai-terminal.streamlit.app/)
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
-![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat&logo=scikitlearn&logoColor=white)
-![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B-000000?style=flat)
-![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white)
-![Auto Retrain](https://img.shields.io/badge/Auto_Retrain-Weekly_via_GitHub_Actions-10b981?style=flat&logo=githubactions&logoColor=white)
+**Live:** https://stock-ai-terminal.streamlit.app/
 
 ---
 
 ## What it does
 
-Type any stock — Apple, Reddit, Tesla, or any ticker — and get a complete equity briefing:
+Predicts the **30-trading-day direction** (UP / DOWN) for ~31 large-cap US stocks
+across four sectors, shows the technicals on a chart, and generates a written
+analysis on top of the model's output.
 
 ```
-User types "AAPL" →
-  ┌──────────────────────────────────────────────────────────┐
-  │  1. Pull 10 years of price data + fundamentals           │
-  │  2. Calculate 10 technical indicators                    │
-  │  3. AdaBoost ML model predicts 30-day direction          │
-  │  4. Model ranks which factors matter most                │
-  │  5. Fetch latest news headlines                          │
-  │  6. Llama 3.3 70B writes analyst-grade research report   │
-  │  7. Everything displayed in a dark trading dashboard     │
-  └──────────────────────────────────────────────────────────┘
-```
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      StockAI Terminal                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────────────┐ │
-│  │   DATA   │──▶│ SIGNALS  │──▶│ FEATURE  │──▶│  LLM BRAIN  │ │
-│  │ PIPELINE │   │ (AdaBoost│   │ RANKING  │   │ (Groq/Llama)│ │
-│  └──────────┘   └──────────┘   └──────────┘   └──────┬──────┘ │
-│       │              │              │                 │         │
-│  yfinance        10yr trained   Importance %     Analyst-grade  │
-│  10yr OHLCV      31 stocks     per indicator     research with  │
-│  Fundamentals    Walk-forward   "Volatility:     cited numbers  │
-│  Live news       validation     42%, MACD: 21%"  Never hallu-   │
-│                                                  cinates        │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │              STREAMLIT DASHBOARD (DARK THEME)              ││
-│  │  Prediction │ Indicators │ Charts │ News │ AI Analysis     ││
-│  │  Risk metrics │ Fundamentals │ Performance │ Glossary      ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │              AUTO-RETRAIN (GitHub Actions — Weekly)         ││
-│  │    Every Sunday: pull fresh data → retrain → commit model   ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
+yfinance (10y OHLCV)
+      │
+      ▼
+technical indicators ──► AdaBoost classifier ──► P(UP) + feature importances
+                                                        │
+                                                        ▼
+                                          Llama 3.3 70B (via Groq), fed the
+                                          structured model output, writes a
+                                          grounded plain-English explanation
+                                                        │
+                                                        ▼
+                                          Streamlit UI  ◄── weekly GitHub Actions
+                                                              retrain commits the
+                                                              refreshed model back
 ```
 
 ---
 
-## Key features
+## The model
 
-**ML Prediction Engine**
-- AdaBoost classifier trained on 10 years of data across 31 stocks (4 sectors)
-- Walk-forward temporal validation — no look-ahead bias
-- Outputs probability score + feature importance ranking
-- Accuracy: ~57% (honest — stock prediction is hard)
+- **Algorithm:** scikit-learn `AdaBoostClassifier` (DecisionTree base, depth 3,
+  100 estimators, lr 0.1).
+- **Target:** `Close.shift(-30) / Close - 1 > 0` — did the price close higher 30
+  trading days later?
+- **Features (7):** RSI, MACD, MACD histogram, Bollinger-band position, volume
+  ratio, volatility, daily return.
+- **Universe:** 31 tickers across Tech, Finance, Real Estate, and Defence;
+  ~10 years of daily data, ~75,000 rows.
 
-**Explainable AI**
-- Model reveals which factors drive each prediction
-- Key finding: Volatility (42%) and MACD (21%) dominate. RSI (0%) is noise for 30-day predictions
-- Every number in the analysis is cited from actual data
+### How it's validated
 
-**LLM Research Reports**
-- Llama 3.3 70B via Groq generates comprehensive equity briefings
-- Sections: Verdict, Technical Picture, Fundamentals, Bull/Bear Case, Risks, Beginner Glossary
-- LLM receives structured ML output — never hallucinates, always cites sources
-- Never gives buy/sell advice — analysis only
+A **per-ticker chronological 80/20 split with a 30-row embargo** at the boundary.
+The target looks 30 days into the future, so the last 30 training rows of each
+ticker would otherwise have forward windows that overlap the test period — classic
+label leakage. The embargo drops exactly those rows, per ticker, so the split is
+clean.
 
-**Live Data**
-- Real-time prices, indicators, fundamentals via Yahoo Finance
-- RSI, MACD, Bollinger Bands, Stochastic, ATR, SMA crossovers
-- Volume analysis, drawdown curves, return distributions
-- 10 news headlines with summaries and source links
+> This is a single time-based split with leakage protection — **not** walk-forward
+> (rolling-window) cross-validation. Rolling CV is a sensible next step; it isn't
+> what runs today.
 
-**Auto-Retraining Pipeline**
-- GitHub Actions workflow retrains the model every Sunday
-- Pulls fresh 10-year data, retrains AdaBoost, commits updated model
-- Model freshness badge in the UI (green/amber/red based on age)
-- Manual retrain: `python retrain.py`
+### How it actually performs
 
-**Beginner Mode**
-- Toggle explanations for every indicator and metric
-- Full glossary of 20+ financial terms in plain English
-- Designed so someone who's never invested can understand the output
+Stating this plainly because it's the honest number:
 
----
+| Metric | Value |
+|---|---|
+| Directional accuracy | **55.4%** |
+| Always-UP baseline | 55.2% |
+| Lift over baseline | **+0.23 pp** |
+| ROC-AUC | 0.549 |
+| DOWN-class recall | 0.026 |
 
-## What the model learned
+In other words, after the leakage fix below, the model is **barely distinguishable
+from "always predict UP"** — it predicts UP almost every time. On a genuinely hard
+problem that's unsurprising, and it's exactly why this project leans on the
+explanation layer rather than the prediction.
 
-After training on 74,000+ data points across 31 stocks and 10 years:
+### The leakage fix (the part worth reading)
 
-```
-Feature importance ranking:
-  Volatility            41.7%  █████████████████████████████████████████
-  PE_Ratio              17.7%  █████████████████
-  MACD_Hist             16.9%  ████████████████
-  Profit_Margin         13.8%  █████████████
-  MACD                   6.8%  ██████
-  Revenue_Growth         3.0%  ███
-  BB_Position            0.1%  
-  RSI                    0.0%  
-  Volume_Ratio           0.0%  
-  Daily_Return           0.0%  
-```
+An earlier version of the model included three fundamentals — PE ratio, revenue
+growth, profit margin — and scored ~57%. That number was wrong. `yfinance`'s
+`.info` returns a **current snapshot**, and those present-day values were being
+stamped onto all 10 years of each ticker's history. The model could see the
+future.
 
-**Insight:** The most popular indicator traders use (RSI) contributes essentially nothing to 30-day predictions. Volatility alone explains 42% of predictive power. This is the kind of finding that makes this project worth discussing in interviews.
+Removing them dropped accuracy from ~57% to ~55% — i.e. **most of the apparent
+edge was lookahead bias.** The free tier doesn't expose reliable point-in-time
+fundamentals (`.quarterly_financials` is shallow and gets restated), so the honest
+move was to drop the leaky features rather than launder them. The accuracy table
+above is the post-fix truth.
 
----
+### What the model learned
 
-## Tech stack
+With the leak gone, the feature importances are the interesting output:
 
-| Category | Technologies |
-|----------|-------------|
-| **ML** | Python, scikit-learn, AdaBoost, pandas, NumPy |
-| **LLM** | Groq API, Llama 3.3 70B, prompt engineering |
-| **Data** | yfinance, Yahoo Finance API |
-| **Visualisation** | Plotly, Streamlit |
-| **CI/CD** | GitHub Actions (weekly auto-retrain) |
-| **Deployment** | Streamlit Community Cloud |
+| Feature | Importance |
+|---|---|
+| Volatility | **64%** |
+| MACD histogram | 17% |
+| MACD | 14% |
+| RSI | 3.8% |
+| Volume ratio, daily return, BB position | ~0% |
+
+Volatility dominates; the much-loved RSI contributes almost nothing. Surfacing
+that kind of finding is what the explainability layer is for.
 
 ---
 
-## Project structure
+## The LLM layer
 
-```
-stock-ai-terminal/
-├── app.py                          # Main Streamlit application (900+ lines)
-├── retrain.py                      # Self-contained retraining script
-├── ada_model.pkl                   # Trained AdaBoost model
-├── model_config.pkl                # Feature columns + importance weights
-├── retrain_log.json                # Retraining history (last 50 runs)
-├── requirements.txt                # Python dependencies
-├── .github/
-│   └── workflows/
-│       └── retrain.yml             # Weekly auto-retrain via GitHub Actions
-├── .gitignore
-└── README.md
-```
+A **Llama 3.3 70B** model, served via **Groq**, turns the model's output into a
+readable analysis. Crucially, it's fed the **structured model output** — the
+probability, the latest indicator values, the feature importances — so it **cites
+those numbers rather than inventing its own.**
+
+It **never gives buy or sell advice.** It explains what the model saw and why, and
+stops there. The UI repeats the disclaimer (≈55% backtest accuracy, "one signal
+among many, not a recommendation") on every result.
 
 ---
 
-## Stocks covered (training data)
+## Automation
 
-| Sector | Stocks |
-|--------|--------|
-| **Tech** (15) | AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, RDDT, AMD, CRM, INTC, NFLX, SHOP, UBER, SNAP |
-| **Finance** (5) | JPM, GS, V, MA, PYPL |
-| **Real Estate** (6) | O, AMT, PLD, SPG, WELL, DLR |
-| **Defence** (5) | LMT, RTX, NOC, GD, BA |
+The model **retrains weekly via GitHub Actions** (`.github/workflows/retrain.yml`,
+Sunday 00:00 UTC, plus manual dispatch). The job runs `retrain.py` on a clean
+runner, and if the refreshed `ada_model.pkl` / `model_config.pkl` /
+`retrain_log.json` differ, it commits them back to `main` with a message like
+`chore(model): weekly retrain 2026-05-20 — accuracy 55.43%`. No manual step, no
+PAT — it uses the default `GITHUB_TOKEN`.
 
-The app can analyse **any stock** — the model was trained on these 31 but predictions work for any ticker with sufficient history.
+`retrain_log.json` is an append-only history (last 50 runs) of every retrain's
+metrics, so the model's performance over time is auditable rather than a single
+claimed number.
 
 ---
 
-## Run locally
+## Honest limitations
 
-```bash
-git clone https://github.com/PRIYANSH29-boop/stock-ai-terminal.git
-cd stock-ai-terminal
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Mac/Linux
+- **AdaBoost was chosen, not validated against alternatives.** It hasn't been
+  benchmarked against XGBoost or a gradient-boosted baseline, so it's the current
+  choice, not a justified one.
+- **Per-prediction explanations are global, not local.** Today the explanation
+  uses model-wide feature importances. **SHAP on individual predictions is
+  planned, not done** — there are no per-prediction attributions yet.
+- **The signal barely beats the baseline.** +0.23 pp over always-UP is, for
+  practical purposes, no edge. This is a directional-classification prototype, not
+  a trading strategy.
+- **Narrow universe, single horizon.** 31 US large-cap tickers, 30-day directional
+  only — no international/small-cap coverage, no magnitude, no risk sizing.
+- **Validation is one split, not rolling CV** (see above).
+
+---
+
+## Run it locally
+
+```powershell
+# Python 3.10
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-
-# Set your Groq API key (free at console.groq.com)
-set GROQ_API_KEY=gsk_your_key_here        # Windows
-# export GROQ_API_KEY=gsk_your_key_here   # Mac/Linux
-
+$env:GROQ_API_KEY = "your-key"      # required for the LLM commentary
 streamlit run app.py
 ```
 
-## Retrain the model
+Retrain manually:
 
-```bash
+```powershell
 python retrain.py
 ```
 
-This pulls fresh 10-year data for all 31 stocks, retrains AdaBoost, and saves updated model files. Takes ~35 seconds.
+`GROQ_API_KEY` is read from the environment or `st.secrets` — never committed.
+`.gitignore` blocks `venv/`, `.env*`, `*.secret`, and `.streamlit/secrets.toml`.
 
 ---
 
-## Key design decisions
+## Files
 
-**Why AdaBoost over XGBoost?**
-AdaBoost focuses on hard-to-classify examples — stocks that are tricky to predict get more attention during training. Each weak learner (shallow decision tree) captures a different pattern. For this problem, AdaBoost's emphasis on difficult cases proved effective. XGBoost comparison is planned as a future improvement.
-
-**Why walk-forward validation?**
-Random train/test splits cause look-ahead bias in financial data — the model would train on 2025 data and get tested on 2023 data it already learned from. Walk-forward uses the first 80% of time for training and the last 20% for testing. Honest evaluation.
-
-**Why Groq + Llama 3.3 70B?**
-Groq offers the fastest inference for open-source models — Llama 3.3 70B generates analyst-grade text in under 2 seconds. The LLM receives structured data (not raw prompts), so it cites real numbers instead of hallucinating. It never gives buy/sell advice — only analysis.
-
-**Why auto-retrain weekly?**
-Markets change. A model trained on 2020 data doesn't understand 2025 dynamics. Weekly retraining via GitHub Actions keeps the model fresh without manual intervention. The UI shows model age with colour-coded freshness badges.
-
-**Why 57% accuracy is actually fine**
-Stock prediction is one of the hardest ML problems. >55% on a 30-day horizon with honest temporal validation is meaningful edge. The real value isn't the prediction — it's the explainability layer that tells you WHY, ranked by importance.
+| File | Purpose |
+|---|---|
+| `app.py` | Streamlit UI — search, chart, prediction card, LLM commentary. |
+| `retrain.py` | Standalone trainer — pulls 10y data, fits AdaBoost, writes pickles + log. |
+| `ada_model.pkl` | Pickled trained classifier (committed; refreshed by the weekly job). |
+| `model_config.pkl` | `{feature_cols, importance}` consumed by `app.py`. |
+| `retrain_log.json` | Append-only history of every retrain (last 50 runs). |
+| `.github/workflows/retrain.yml` | Weekly retrain — Sunday 00:00 UTC. |
+| `requirements.txt` | streamlit, yfinance, pandas, numpy, scikit-learn, plotly, groq. |
 
 ---
 
-## Limitations (honest assessment)
-
-- Model accuracy is ~57% — better than random (50%) but not dramatically
-- Feature importance is global (same weights for all stocks) — sector-specific models would improve this
-- News sentiment is not quantified — headlines are shown but not scored
-- No backtesting dashboard yet — past predictions aren't visualised
-- Single model architecture — ensemble of multiple models would be more robust
-- Rate limiting on Groq free tier during heavy usage
-
----
-
-## Future improvements
-
-- [ ] Sector-specific AdaBoost models (different weights for tech vs defence)
-- [ ] XGBoost comparison + model ensemble
-- [ ] Quantified news sentiment as a feature
-- [ ] Backtesting dashboard with historical prediction accuracy
-- [ ] Portfolio analysis (multiple stocks at once)
-- [ ] SHAP explainability on individual predictions
-- [ ] Telegram bot for real-time alerts
-
----
-
-## Disclaimer
-
-⚠️ **This tool is for educational and research purposes only.** It does not provide financial advice. Model accuracy is approximately 57%. Past performance does not indicate future results. Never make investment decisions based solely on algorithmic output.
-
----
-
-## Built by
-
-**Priyansh Patel** — BSc Computer Science, University of East London
+*Not financial advice. This is an engineering project about explainable ML, not a
+tool for making investment decisions.*
